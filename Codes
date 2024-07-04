@@ -1,0 +1,248 @@
+WITH
+  all_tables AS (
+    SELECT
+      s.session_id,
+      s.user_id,
+      s.session_start,
+      s.session_end,
+      EXTRACT(
+        EPOCH
+        FROM
+          (s.session_end - s.session_start)
+      ) AS total_session_period,
+      s.page_clicks,
+      s.flight_discount,
+      s.flight_discount_amount,
+      s.hotel_discount,
+      s.hotel_discount_amount,
+      s.trip_id,
+      (f.departure_time - s.session_end)AS time_btw_booking_departure,
+      s.flight_booked,
+      s.hotel_booked,
+      s.cancellation,
+      u.birthdate,
+      u.gender,
+      u.married,
+      u.has_children,
+      u.home_country,
+      u.home_city,
+      u.home_airport,
+      u.home_airport_lat,
+      u.home_airport_lon,
+      u.sign_up_date,
+      f.origin_airport,
+      f.destination,
+      f.destination_airport,
+      f.seats,
+      ROUND(
+        HAVERSINE_DISTANCE(
+          u.home_airport_lat,
+          u.home_airport_lon,
+          f.destination_airport_lat,
+          f.destination_airport_lon
+        )
+      ) AS distance_flown_km,
+      f.return_flight_booked,
+      f.departure_time,
+      f.return_time,
+      f.checked_bags,
+      f.trip_airline,
+      f.destination_airport_lat,
+      f.destination_airport_lon,
+      f.base_fare_usd,
+      CASE
+        WHEN s.flight_discount_amount IS NOT NULL THEN (f.base_fare_usd * (1 - s.flight_discount_amount))
+        ELSE f.base_fare_usd
+      END full_ticket_price,
+      h.hotel_name,
+      CASE
+        WHEN h.nights < 0 THEN 1
+        ELSE h.nights
+      END nights,
+      h.rooms,
+      h.check_in_time,
+      h.check_out_time,
+      h.hotel_per_room_usd AS hotel_per_room_night_usd,
+      CASE
+        WHEN s.hotel_discount_amount IS NOT NULL THEN (
+          h.hotel_per_room_usd * (1 - s.hotel_discount_amount)
+        )
+        ELSE h.hotel_per_room_usd
+      END full_hotel_price
+    FROM
+      sessions s
+      LEFT JOIN users u ON s.user_id = u.user_id
+      LEFT JOIN flights f ON s.trip_id = f.trip_id
+      LEFT JOIN hotels h ON s.trip_id = h.trip_id
+    WHERE
+      session_start > '2023-01-04'
+  ),
+  cohort_filter AS (
+    SELECT
+      user_id,
+      COUNT(session_id) AS session_count
+    FROM
+      all_tables
+    WHERE
+      session_start > '2023-01-04'
+    GROUP BY
+      user_id
+    HAVING
+      COUNT(session_id) > 7
+  ),
+  cohort_base_table AS (
+    SELECT
+      *
+    FROM
+      all_tables
+    WHERE
+      user_id IN (
+        SELECT
+          user_id
+        FROM
+          cohort_filter
+      )
+  ),
+  trips_cancelled AS (
+    SELECT
+      *
+    FROM
+      cohort_base_table
+    WHERE
+      cancellation = 'true'
+  ),
+  user_session_table AS (
+    SELECT
+      user_id,
+      SUM(time_btw_booking_departure) AS time_btw_booking_departure,
+      COUNT(DISTINCT trip_id) AS actual_trips,
+      COALESCE(SUM(page_clicks), 0) AS total_click,
+      COALESCE(AVG(page_clicks), 0) AS avg_click,
+      COALESCE(COUNT(session_id), 0) AS session_count,
+      COUNT(cancellation) AS total_cancellation,
+      MAX(session_start) AS last_session_date
+    FROM
+      cohort_base_table
+    GROUP BY
+      user_id
+  ),
+  user_flights AS (
+    SELECT
+      user_id,
+      COUNT(DISTINCT trip_id) AS trip_count,
+      COALESCE(SUM(base_fare_usd), 0) AS total_flight_price,
+      COALESCE(ROUND(SUM(flight_discount_amount * base_fare_usd), 2), 0) AS sum_flight_discounts,
+      COALESCE(ROUND(AVG(flight_discount_amount), 2), 0) avg_discount_flights,
+      SUM(
+        CASE
+          WHEN (flight_booked = 'true') AND (return_flight_booked = 'true') THEN 2
+          WHEN flight_booked = 'true' THEN 1
+          ELSE 0
+        END
+      ) AS num_flights,
+      COUNT(EXTRACT(MONTH FROM sign_up_date)) AS months_since_signup,
+      COALESCE(AVG(checked_bags), 0) AS avg_checked_baggage,
+      COUNT(flight_discount) AS frequency_of_discount_flight,
+      COALESCE(SUM(full_ticket_price), 0) AS total_ticket_price,
+      COALESCE(SUM(seats), 0) AS booked_seats,
+      COALESCE(SUM(distance_flown_km), 0) AS total_distance_flown
+    FROM
+      cohort_base_table
+    GROUP BY
+      user_id
+  ),
+  user_hotel_info AS (
+    SELECT
+      user_id,
+      COALESCE(SUM(rooms), 0) AS total_rooms,
+      COALESCE(
+        SUM(
+          CASE
+            WHEN nights < 0 THEN 1
+            ELSE nights
+          END
+        ),
+        0
+      ) AS total_nights,
+      COALESCE(COUNT(hotel_discount_amount), 0) AS frequency_hotel_discount,
+      COALESCE(COUNT(trip_id), 0) AS hotel_booking_count,
+      COALESCE(SUM(full_hotel_price), 0) AS total_hotel_price,
+      COALESCE(ROUND(AVG(full_hotel_price), 2), 0) AS avg_hotel_price
+    FROM
+      cohort_base_table
+    WHERE
+      trip_id NOT IN (
+        SELECT
+          trip_id
+        FROM
+          trips_cancelled
+      )
+    GROUP BY
+      user_id
+  ),
+  user_base_table AS (
+    SELECT
+      user_id,
+      gender,
+      EXTRACT(
+        YEAR
+        FROM
+          age(birthdate)
+      ) AS age,
+      married,
+      has_children,
+      home_country,
+      home_city
+    FROM
+      cohort_base_table
+    GROUP BY
+      user_id, gender, birthdate, married, has_children, home_country, home_city
+  ),
+  -- finding the users recency (recent activities in days)
+  recency_table AS (
+    SELECT
+      user_id,
+      DATE_PART('day', '2023-07-28' - MAX(last_session_date)) AS recency
+    FROM
+      user_session_table
+    GROUP BY
+      user_id
+  )
+SELECT
+  ubt.*,
+  ust.actual_trips,
+  ust.total_click,
+  ust.avg_click,
+  ust.session_count,
+  ust.total_cancellation,
+  COALESCE(EXTRACT(DAY FROM ust.time_btw_booking_departure),0) AS time_btw_booking_departure,
+  uf.total_flight_price,
+  uf.sum_flight_discounts,
+  uf.num_flights,
+  uf.months_since_signup,
+  uf.avg_checked_baggage,
+  uf.frequency_of_discount_flight,
+  uf.total_ticket_price,
+  COALESCE(uf.booked_seats,0) booked_seats,
+  COALESCE(uf.total_distance_flown,0) total_distance_flown,
+  COALESCE(uhi.total_rooms,0) total_rooms,
+  COALESCE(uhi.total_nights,0) total_nights,
+  COALESCE(uhi.frequency_hotel_discount,0) frequency_hotel_discount,
+  COALESCE(uhi.hotel_booking_count,0) hotel_booking_count,
+  COALESCE(uhi.total_hotel_price,0) total_hotel_price,
+  COALESCE(uhi.avg_hotel_price,0) avg_hotel_price,
+  COALESCE(rt.recency,0) session_recency,
+  COALESCE(ust.session_count,0) AS session_frequency, -- Using session count as frequency
+  COALESCE(uf.total_ticket_price + uhi.total_hotel_price, 0) AS monetary_value -- Total spend on flights and hotels as monetary
+FROM
+  user_base_table ubt
+LEFT JOIN
+  user_session_table ust ON ubt.user_id = ust.user_id
+LEFT JOIN
+  user_flights uf ON ubt.user_id = uf.user_id
+LEFT JOIN
+  user_hotel_info uhi ON ubt.user_id = uhi.user_id
+LEFT JOIN
+  recency_table rt ON ubt.user_id = rt.user_id
+ORDER BY
+  ubt.user_id
