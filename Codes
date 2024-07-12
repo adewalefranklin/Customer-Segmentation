@@ -1,248 +1,434 @@
-WITH
-  all_tables AS (
+WITH all_tables AS (
     SELECT
-      s.session_id,
-      s.user_id,
-      s.session_start,
-      s.session_end,
-      EXTRACT(
-        EPOCH
-        FROM
-          (s.session_end - s.session_start)
-      ) AS total_session_period,
-      s.page_clicks,
-      s.flight_discount,
-      s.flight_discount_amount,
-      s.hotel_discount,
-      s.hotel_discount_amount,
-      s.trip_id,
-      (f.departure_time - s.session_end)AS time_btw_booking_departure,
-      s.flight_booked,
-      s.hotel_booked,
-      s.cancellation,
-      u.birthdate,
-      u.gender,
-      u.married,
-      u.has_children,
-      u.home_country,
-      u.home_city,
-      u.home_airport,
-      u.home_airport_lat,
-      u.home_airport_lon,
-      u.sign_up_date,
-      f.origin_airport,
-      f.destination,
-      f.destination_airport,
-      f.seats,
-      ROUND(
-        HAVERSINE_DISTANCE(
-          u.home_airport_lat,
-          u.home_airport_lon,
-          f.destination_airport_lat,
-          f.destination_airport_lon
-        )
-      ) AS distance_flown_km,
-      f.return_flight_booked,
-      f.departure_time,
-      f.return_time,
-      f.checked_bags,
-      f.trip_airline,
-      f.destination_airport_lat,
-      f.destination_airport_lon,
-      f.base_fare_usd,
-      CASE
-        WHEN s.flight_discount_amount IS NOT NULL THEN (f.base_fare_usd * (1 - s.flight_discount_amount))
-        ELSE f.base_fare_usd
-      END full_ticket_price,
-      h.hotel_name,
-      CASE
-        WHEN h.nights < 0 THEN 1
-        ELSE h.nights
-      END nights,
-      h.rooms,
-      h.check_in_time,
-      h.check_out_time,
-      h.hotel_per_room_usd AS hotel_per_room_night_usd,
-      CASE
-        WHEN s.hotel_discount_amount IS NOT NULL THEN (
-          h.hotel_per_room_usd * (1 - s.hotel_discount_amount)
-        )
-        ELSE h.hotel_per_room_usd
-      END full_hotel_price
+        s.session_id,
+        s.user_id,
+        s.session_start,
+        s.session_end,
+        EXTRACT(EPOCH FROM (s.session_end - s.session_start)) AS total_session_period,
+        s.page_clicks,
+        s.flight_discount,
+        s.flight_discount_amount,
+        s.hotel_discount,
+        s.hotel_discount_amount,
+        s.trip_id,
+        s.flight_booked,
+        COALESCE(DATE_PART('day', (f.departure_time - s.session_end)), 0) AS time_btw_booking_departure,
+        s.hotel_booked,
+        s.cancellation,
+        u.birthdate,
+        u.gender,
+        u.married,
+        u.has_children,
+        u.home_country,
+        u.home_city,
+        u.home_airport,
+        u.home_airport_lat,
+        u.home_airport_lon,
+        u.sign_up_date,
+        f.origin_airport,
+        f.destination,
+        f.destination_airport,
+        f.seats,
+        ROUND(HAVERSINE_DISTANCE(u.home_airport_lat, u.home_airport_lon, f.destination_airport_lat, f.destination_airport_lon)) AS distance_flown_km,
+        f.return_flight_booked,
+        f.departure_time,
+        f.return_time,
+        f.checked_bags,
+        f.trip_airline,
+        f.destination_airport_lat,
+        f.destination_airport_lon,
+        f.base_fare_usd,
+        CASE WHEN s.flight_discount_amount IS NOT NULL THEN (f.base_fare_usd * (1 - s.flight_discount_amount))
+             ELSE f.base_fare_usd END AS full_ticket_price,
+        h.hotel_name,
+        CASE WHEN h.nights < 0 THEN 1 ELSE h.nights END AS nights,
+        h.rooms,
+        h.check_in_time,
+        h.check_out_time,
+        h.hotel_per_room_usd AS hotel_per_room_night_usd,
+        CASE WHEN s.hotel_discount_amount IS NOT NULL THEN (h.hotel_per_room_usd * (1 - s.hotel_discount_amount))
+             ELSE h.hotel_per_room_usd END AS full_hotel_price
     FROM
-      sessions s
-      LEFT JOIN users u ON s.user_id = u.user_id
-      LEFT JOIN flights f ON s.trip_id = f.trip_id
-      LEFT JOIN hotels h ON s.trip_id = h.trip_id
+        sessions s
+        LEFT JOIN users u ON s.user_id = u.user_id
+        LEFT JOIN flights f ON s.trip_id = f.trip_id
+        LEFT JOIN hotels h ON s.trip_id = h.trip_id
     WHERE
-      session_start > '2023-01-04'
-  ),
-  cohort_filter AS (
+        s.session_start > '2023-01-04'
+),
+
+cohort_filter AS (
     SELECT
-      user_id,
-      COUNT(session_id) AS session_count
+        user_id
     FROM
-      all_tables
-    WHERE
-      session_start > '2023-01-04'
+        all_tables
     GROUP BY
-      user_id
+        user_id
     HAVING
-      COUNT(session_id) > 7
-  ),
-  cohort_base_table AS (
+        COUNT(DISTINCT session_id) > 7
+),
+
+cohort_base_table AS (
     SELECT
-      *
+        at.*
     FROM
-      all_tables
+        all_tables at
+        JOIN cohort_filter cf ON at.user_id = cf.user_id
+),
+
+trips_cancelled AS (
+    SELECT
+        *
+    FROM
+        cohort_base_table
     WHERE
-      user_id IN (
-        SELECT
-          user_id
-        FROM
-          cohort_filter
-      )
-  ),
-  trips_cancelled AS (
+        cancellation = 'true'
+),
+
+user_session_table AS (
     SELECT
-      *
+        user_id,
+        COUNT(DISTINCT trip_id) AS actual_trips,
+        COALESCE(SUM(page_clicks), 0) AS total_click,
+        COALESCE(AVG(page_clicks), 0) AS avg_click,
+        COALESCE(COUNT(DISTINCT session_id), 0) AS session_count,
+        COUNT(cancellation) AS total_cancellation,
+        MAX(session_start) AS last_session_date
     FROM
-      cohort_base_table
-    WHERE
-      cancellation = 'true'
-  ),
-  user_session_table AS (
-    SELECT
-      user_id,
-      SUM(time_btw_booking_departure) AS time_btw_booking_departure,
-      COUNT(DISTINCT trip_id) AS actual_trips,
-      COALESCE(SUM(page_clicks), 0) AS total_click,
-      COALESCE(AVG(page_clicks), 0) AS avg_click,
-      COALESCE(COUNT(session_id), 0) AS session_count,
-      COUNT(cancellation) AS total_cancellation,
-      MAX(session_start) AS last_session_date
-    FROM
-      cohort_base_table
+        cohort_base_table
     GROUP BY
-      user_id
-  ),
-  user_flights AS (
+        user_id
+),
+
+user_flights AS (
     SELECT
-      user_id,
-      COUNT(DISTINCT trip_id) AS trip_count,
-      COALESCE(SUM(base_fare_usd), 0) AS total_flight_price,
-      COALESCE(ROUND(SUM(flight_discount_amount * base_fare_usd), 2), 0) AS sum_flight_discounts,
-      COALESCE(ROUND(AVG(flight_discount_amount), 2), 0) avg_discount_flights,
-      SUM(
+        user_id,
+        COUNT(DISTINCT trip_id) AS trip_count,
+        COALESCE(SUM(base_fare_usd), 0) AS total_flight_price,
+        COALESCE(ROUND(SUM(flight_discount_amount * base_fare_usd), 2), 0) AS sum_flight_discounts,
+        COALESCE(ROUND(AVG(flight_discount_amount), 2), 0) AS avg_discount_flights,
+        SUM(CASE WHEN (flight_booked = 'true') AND (return_flight_booked = 'true') THEN 2
+                 WHEN flight_booked = 'true' THEN 1
+                 ELSE 0 END) AS num_flights,
+        COUNT(EXTRACT(MONTH FROM sign_up_date)) AS months_since_signup,
+        COALESCE(AVG(checked_bags), 0) AS avg_checked_baggage,
+        COUNT(flight_discount) AS frequency_of_discount_flight,
+        COALESCE(SUM(full_ticket_price), 0) AS total_ticket_price,
+        COALESCE(SUM(seats), 0) AS booked_seats,
+        COALESCE(SUM(distance_flown_km), 0) AS total_distance_flown,
+        ROUND(AVG(time_btw_booking_departure)) AS avg_time_btw_booking_departure
+    FROM
+        cohort_base_table
+    GROUP BY
+        user_id
+),
+
+user_hotel_info AS (
+    SELECT
+        user_id,
+        COALESCE(SUM(rooms), 0) AS total_rooms,
+        COALESCE(SUM(CASE WHEN nights < 0 THEN 1 ELSE nights END), 0) AS total_nights,
+        COALESCE(COUNT(hotel_discount_amount), 0) AS frequency_hotel_discount,
+        COALESCE(COUNT(trip_id), 0) AS hotel_booking_count,
+        COALESCE(SUM(full_hotel_price * rooms * nights), 0) AS total_hotel_price,
+        COALESCE(ROUND(AVG(full_hotel_price), 2), 0) AS avg_hotel_price
+    FROM
+        cohort_base_table
+    WHERE
+        trip_id NOT IN (SELECT trip_id FROM trips_cancelled)
+    GROUP BY
+        user_id
+),
+
+user_base_table AS (
+    SELECT
+        user_id,
+        gender,
+        EXTRACT(YEAR FROM age(birthdate)) AS age,
+        married,
+        has_children,
+        home_country,
+        home_city
+    FROM
+        cohort_base_table
+    GROUP BY
+        user_id, gender, birthdate, married, has_children, home_country, home_city
+),
+
+rfm_frequency AS (
+    SELECT
+        u.user_id,
+        COALESCE(cf.session_count, 0) AS rfm_frequency
+    FROM
+        user_base_table u
+        LEFT JOIN (
+            SELECT
+                user_id,
+                COUNT(DISTINCT session_id) AS session_count
+            FROM
+                all_tables
+            GROUP BY
+                user_id
+        ) cf ON u.user_id = cf.user_id
+),
+
+recency_table AS (
+    SELECT
+        user_id,
+        DATE_PART('day', '2023-08-28' - MAX(last_session_date)) AS rfm_recency
+    FROM
+        user_session_table
+    GROUP BY
+        user_id
+),
+
+rfm_monetary AS (
+    SELECT
+        uf.user_id,
+        COALESCE(SUM(uf.total_ticket_price), 0) + COALESCE(SUM(uhi.total_hotel_price), 0) AS rfm_monetary
+    FROM
+        user_flights uf
+        LEFT JOIN user_hotel_info uhi ON uf.user_id = uhi.user_id
+    GROUP BY
+        uf.user_id
+),
+
+rfm_score_table AS (
+    SELECT
+        rfm_frequency.user_id,
+        COALESCE(rfm_frequency.rfm_frequency, 0) AS rfm_frequency,
+        COALESCE(recency_table.rfm_recency, 0) AS rfm_recency,
+        COALESCE(rfm_monetary.rfm_monetary, 0) AS rfm_monetary,
+        (COALESCE(rfm_frequency.rfm_frequency, 0) + COALESCE(recency_table.rfm_recency, 0) + COALESCE(rfm_monetary.rfm_monetary, 0)) AS rfm_score  
+    FROM
+        rfm_frequency
+        LEFT JOIN recency_table ON rfm_frequency.user_id = recency_table.user_id
+        LEFT JOIN rfm_monetary ON rfm_frequency.user_id = rfm_monetary.user_id
+),
+
+rfm_score_with_ntile AS (
+    SELECT
+        rfm_score_table.user_id,
+        rfm_score_table.rfm_score,
+        NTILE(4) OVER (ORDER BY rfm_score_table.rfm_recency ASC) AS rfm_recency_quartile,
+        NTILE(4) OVER (ORDER BY rfm_score_table.rfm_frequency DESC) AS rfm_frequency_quartile,
+        NTILE(4) OVER (ORDER BY rfm_score_table.rfm_monetary DESC) AS rfm_monetary_quartile,
+        NTILE(4) OVER (ORDER BY rfm_score_table.rfm_score DESC) AS rfm_rank -- Assuming you want an overall rank
+    FROM
+        rfm_score_table
+),
+
+rfm_user_type AS (
+    SELECT
+        rfm_score_with_ntile.user_id,
+        CONCAT(rfm_frequency_quartile, rfm_recency_quartile, rfm_monetary_quartile)::INTEGER AS rfm_rank,
         CASE
-          WHEN (flight_booked = 'true') AND (return_flight_booked = 'true') THEN 2
-          WHEN flight_booked = 'true' THEN 1
-          ELSE 0
-        END
-      ) AS num_flights,
-      COUNT(EXTRACT(MONTH FROM sign_up_date)) AS months_since_signup,
-      COALESCE(AVG(checked_bags), 0) AS avg_checked_baggage,
-      COUNT(flight_discount) AS frequency_of_discount_flight,
-      COALESCE(SUM(full_ticket_price), 0) AS total_ticket_price,
-      COALESCE(SUM(seats), 0) AS booked_seats,
-      COALESCE(SUM(distance_flown_km), 0) AS total_distance_flown
+            WHEN rfm_score_table.rfm_monetary = 0 THEN 'Basic Members(Never Booked)'
+            WHEN rfm_recency_quartile = 4 AND rfm_monetary_quartile = 1 THEN 'Bronze Members'
+            WHEN CONCAT(rfm_frequency_quartile, rfm_recency_quartile, rfm_monetary_quartile)::INTEGER BETWEEN 111 AND 222 THEN 'Platinum Members'
+            WHEN CONCAT(rfm_frequency_quartile, rfm_recency_quartile, rfm_monetary_quartile)::INTEGER BETWEEN 223 AND 333 THEN 'Gold Members'
+            ELSE 'Silver Members'
+        END AS user_type
     FROM
-      cohort_base_table
-    GROUP BY
-      user_id
-  ),
-  user_hotel_info AS (
+        rfm_score_with_ntile
+        JOIN rfm_score_table ON rfm_score_with_ntile.user_id = rfm_score_table.user_id
+),
+
+user_segments AS (
     SELECT
-      user_id,
-      COALESCE(SUM(rooms), 0) AS total_rooms,
-      COALESCE(
-        SUM(
-          CASE
-            WHEN nights < 0 THEN 1
-            ELSE nights
-          END
-        ),
-        0
-      ) AS total_nights,
-      COALESCE(COUNT(hotel_discount_amount), 0) AS frequency_hotel_discount,
-      COALESCE(COUNT(trip_id), 0) AS hotel_booking_count,
-      COALESCE(SUM(full_hotel_price), 0) AS total_hotel_price,
-      COALESCE(ROUND(AVG(full_hotel_price), 2), 0) AS avg_hotel_price
+        rut.user_id,
+        CASE
+            -- Young and Free category breakdown
+            WHEN ubt.age < 30 AND rut.user_type LIKE 'Platinum%' AND ubt.has_children = 'false' THEN
+                CASE
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 AND COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Young and Free - Platinum - Hotel&Flight (20% hotel discount)'
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 THEN 'Young and Free - Platinum - Flight Only (Free Concert Voucher)'
+                    WHEN COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Young and Free - Platinum - Hotel Only (20% hotel discount)'
+                END
+            WHEN ubt.age < 30 AND rut.user_type LIKE 'Gold%' AND ubt.has_children = 'false' THEN
+                CASE
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 AND COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Young and Free - Gold - Hotel&Flight (15% hotel discount)'
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 THEN 'Young and Free - Gold - Flight Only (Free Concert Voucher)'
+                    WHEN COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Young and Free - Gold - Hotel Only (15% hotel discount)'
+                END
+            WHEN ubt.age < 30 AND rut.user_type LIKE 'Silver%' AND ubt.has_children = 'false' THEN
+                CASE
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 AND COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Young and Free - Silver - Hotel&Flight (20% hotel discount)'
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 THEN 'Young and Free - Silver - Flight Only (Free Concert Voucher)'
+                    WHEN COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Young and Free - Silver - Hotel Only (20% hotel discount)'
+                END
+            WHEN ubt.age < 30 AND rut.user_type LIKE 'Bronze%' AND ubt.has_children = 'false' THEN
+                CASE
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 AND COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Young and Free - Bronze - Hotel&Flight (15% hotel discount)'
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 THEN 'Young and Free - Bronze - Flight Only (Free Concert Voucher)'
+                    WHEN COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Young and Free - Bronze - Hotel Only (15% hotel discount)'
+                END
+            
+            -- Family Travelers category breakdown
+            WHEN ubt.age >= 30 AND ubt.age < 60 AND ubt.has_children = 'true' AND rut.user_type LIKE 'Platinum%' THEN
+                CASE
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 AND COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Family Travelers - Platinum - Hotel&Flight (Family event voucher)'
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 THEN 'Family Travelers - Platinum - Flight Only (Free Cancellation & Rescheduling)'
+                    WHEN COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Family Travelers - Platinum - Hotel Only (Family event voucher)'
+                END
+            WHEN ubt.age >= 30 AND ubt.age < 60 AND ubt.has_children = 'true' AND rut.user_type LIKE 'Gold%' THEN
+                CASE
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 AND COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Family Travelers - Gold - Hotel&Flight (1 Complimentary Family Dinner)'
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 THEN 'Family Travelers - Gold - Flight Only (Free Cancellation & Rescheduling)'
+                    WHEN COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Family Travelers - Gold - Hotel Only (1 Complimentary Family Dinner)'
+                END
+            WHEN ubt.age >= 30 AND ubt.age < 60 AND ubt.has_children = 'true' AND rut.user_type LIKE 'Silver%' THEN
+                CASE
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 AND COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Family Travelers - Silver - Hotel&Flight (1 Complimentary Family Dinner)'
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 THEN 'Family Travelers - Silver - Flight Only (Free Cancellation & Rescheduling)'
+                    WHEN COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Family Travelers - Silver - Hotel Only (1 Complimentary Family Dinner)'
+                END
+            WHEN ubt.age >= 30 AND ubt.age < 60 AND ubt.has_children = 'true' AND rut.user_type LIKE 'Bronze%' THEN
+                CASE
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 AND COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Family Travelers - Bronze - Hotel&Flight (1 Complimentary Family Dinner)'
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 THEN 'Family Travelers - Bronze - Flight Only (Free Cancellation & Rescheduling)'
+                    WHEN COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Family Travelers - Bronze - Hotel Only (1 Complimentary Family Dinner)'
+                END
+            
+            -- Business Travelers category breakdown
+            WHEN ubt.age >= 30 AND ubt.has_children = 'false' AND rut.user_type LIKE 'Platinum%' AND uf.avg_checked_baggage <= 1 THEN
+                CASE
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 THEN 'Business Travelers - Platinum - Flight Only (Executive lounge access)'
+                    WHEN COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Business Travelers - Platinum - Hotel Only (Room upgrade)'
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 AND COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Business Travelers - Platinum - Hotel&Flight (Executive lounge access & Room upgrade)'
+                END
+            WHEN ubt.age >= 30 AND ubt.has_children = 'false' AND rut.user_type LIKE 'Gold%' AND uf.avg_checked_baggage <= 1 THEN
+                CASE
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 THEN 'Business Travelers - Gold - Flight Only (Priority boarding)'
+                    WHEN COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Business Travelers - Gold - Hotel Only (Free breakfast)'
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 AND COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Business Travelers - Gold - Hotel&Flight (Priority boarding & Free breakfast)'
+                END
+            WHEN ubt.age >= 30 AND ubt.has_children = 'false' AND rut.user_type LIKE 'Silver%' AND uf.avg_checked_baggage <= 1 THEN
+                CASE
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 THEN 'Business Travelers - Silver - Flight Only (Free Cancellation)'
+                    WHEN COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Business Travelers - Silver - Hotel Only (Late Check-out)'
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 AND COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Business Travelers - Silver - Hotel&Flight (Free Cancellation & Late Check-out)'
+                END
+            WHEN ubt.age >= 30 AND ubt.has_children = 'false' AND rut.user_type LIKE 'Bronze%' AND uf.avg_checked_baggage <= 1 THEN
+                CASE
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 THEN 'Business Travelers - Bronze - Flight Only (Priority boarding)'
+                    WHEN COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Business Travelers - Bronze - Hotel Only (Free breakfast)'
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 AND COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Business Travelers - Bronze - Hotel&Flight (Priority boarding & Free breakfast)'
+                END
+            
+            -- Senior Citizens category breakdown
+            WHEN ubt.age >= 60 AND rut.user_type LIKE 'Platinum%' THEN
+                CASE
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 THEN 'Senior Citizens - Platinum - Flight Only (Senior Priority Check-in)'
+                    WHEN COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Senior Citizens - Platinum - Hotel Only (Senior Priority Check-in)'
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 AND COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Senior Citizens - Platinum - Hotel&Flight (Senior Priority Check-in)'
+                END
+            WHEN ubt.age >= 60 AND rut.user_type LIKE 'Gold%' THEN
+                CASE
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 THEN 'Senior Citizens - Gold - Flight Only (Senior Citizens lounge access)'
+                    WHEN COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Senior Citizens - Gold - Hotel Only (Senior Citizens lounge access)'
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 AND COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Senior Citizens - Gold - Hotel&Flight (Senior Citizens lounge access)'
+                END
+            WHEN ubt.age >= 60 AND rut.user_type LIKE 'Silver%' THEN
+                CASE
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 THEN 'Senior Citizens - Silver - Flight Only (20% discount on flights)'
+                    WHEN COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Senior Citizens - Silver - Hotel Only (20% discount on hotels)'
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 AND COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Senior Citizens - Silver - Hotel&Flight (20% discount on hotels and flights)'
+                END
+            WHEN ubt.age >= 60 AND rut.user_type LIKE 'Bronze%' THEN
+                CASE
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 THEN 'Senior Citizens - Bronze - Flight Only (20% discount on flights)'
+                    WHEN COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Senior Citizens - Bronze - Hotel Only (20% discount on hotels)'
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 AND COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Senior Citizens - Bronze - Hotel&Flight (20% discount on hotels and flights)'
+                END
+            
+            -- Couple Explorers category breakdown
+            WHEN ubt.married = 'true' AND ubt.has_children = 'false' AND rut.user_type LIKE 'Platinum%' THEN
+                CASE
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 THEN 'Couple Explorers - Platinum - Flight Only (Couple Seating Preference)'
+                    WHEN COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Couple Explorers - Platinum - Hotel Only (1 Night Romantic Dinner)'
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 AND COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Couple Explorers - Platinum - Hotel&Flight (Couple Seating Preference & 1 Night Romantic Dinner)'
+                END
+            WHEN ubt.married = 'true' AND ubt.has_children = 'false' AND rut.user_type LIKE 'Gold%' THEN
+                CASE
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 THEN 'Couple Explorers - Gold - Flight Only (Free Cinema Voucher for Couples)'
+                    WHEN COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Couple Explorers - Gold - Hotel Only (Couple Spa Session)'
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 AND COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Couple Explorers - Gold - Hotel&Flight (Free Cinema Voucher & Couple Spa Session)'
+                END
+            WHEN ubt.married = 'true' AND ubt.has_children = 'false' AND rut.user_type LIKE 'Silver%' THEN
+                CASE
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 THEN 'Couple Explorers - Silver - Flight Only (Couple Retreat)'
+                    WHEN COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Couple Explorers - Silver - Hotel Only (Couple Yoga Class)'
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 AND COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Couple Explorers - Silver - Hotel&Flight (Couple Retreat & Couple Yoga Class)'
+                END
+            WHEN ubt.married = 'true' AND ubt.has_children = 'false' AND rut.user_type LIKE 'Bronze%' THEN
+                CASE
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 THEN 'Couple Explorers - Bronze - Flight Only (Couple Seating Preference)'
+                    WHEN COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Couple Explorers - Bronze - Hotel Only (1 Night Romantic Dinner)'
+                    WHEN COALESCE(uf.total_ticket_price, 0) > 0 AND COALESCE(uhi.total_hotel_price, 0) > 0 THEN 'Couple Explorers - Bronze - Hotel&Flight (Couple Seating Preference & 1 Night Romantic Dinner)'
+                END
+            
+            ELSE '30% first timer welcome discount'
+        END AS perks
     FROM
-      cohort_base_table
-    WHERE
-      trip_id NOT IN (
-        SELECT
-          trip_id
-        FROM
-          trips_cancelled
-      )
-    GROUP BY
-      user_id
-  ),
-  user_base_table AS (
+        user_base_table ubt
+        LEFT JOIN rfm_user_type rut ON ubt.user_id = rut.user_id
+        LEFT JOIN user_flights uf ON ubt.user_id = uf.user_id
+        LEFT JOIN user_hotel_info uhi ON ubt.user_id = uhi.user_id
+)
+,
+
+final_table AS (
     SELECT
-      user_id,
-      gender,
-      EXTRACT(
-        YEAR
-        FROM
-          age(birthdate)
-      ) AS age,
-      married,
-      has_children,
-      home_country,
-      home_city
+        ubt.user_id,
+        ubt.gender,
+        ubt.age,
+        ubt.married,
+        ubt.has_children,
+        ust.actual_trips,
+        ROUND(ust.avg_click, 2) AS avg_click,
+        ust.session_count,
+        uf.num_flights,
+        COALESCE(uf.avg_time_btw_booking_departure, 0) AS avg_time_btw_booking_departure,
+        ROUND(uf.avg_checked_baggage, 2) AS avg_checked_baggage,
+        uf.frequency_of_discount_flight,
+        COALESCE(uhi.frequency_hotel_discount, 0) AS frequency_hotel_discount,
+        uf.booked_seats,
+        COALESCE(uhi.total_rooms, 0) AS total_rooms,
+        COALESCE(uhi.total_nights, 0) AS total_nights,
+        COALESCE(uhi.hotel_booking_count, 0) AS hotel_booking_count, 
+        COALESCE(uf.total_flight_price, 0) AS total_flight_price,
+        COALESCE(uhi.total_hotel_price, 0) AS total_hotel_price,
+        COALESCE(rt.rfm_recency, 0) AS rfm_recency,
+        COALESCE(rf.rfm_frequency, 0) AS rfm_frequency,
+        COALESCE(uf.total_ticket_price, 0) + COALESCE(uhi.total_hotel_price, 0) AS monetary_value,
+        COALESCE(rsn.rfm_frequency_quartile, 0) AS rfm_frequency_quartile,
+        COALESCE(rsn.rfm_recency_quartile, 0) AS rfm_recency_quartile,
+        COALESCE(rsn.rfm_monetary_quartile, 0) AS rfm_monetary_quartile,
+        rsn.rfm_rank,
+        rut.user_type,
+        usg.perks
     FROM
-      cohort_base_table
-    GROUP BY
-      user_id, gender, birthdate, married, has_children, home_country, home_city
-  ),
-  -- finding the users recency (recent activities in days)
-  recency_table AS (
-    SELECT
-      user_id,
-      DATE_PART('day', '2023-07-28' - MAX(last_session_date)) AS recency
-    FROM
-      user_session_table
-    GROUP BY
-      user_id
-  )
-SELECT
-  ubt.*,
-  ust.actual_trips,
-  ust.total_click,
-  ust.avg_click,
-  ust.session_count,
-  ust.total_cancellation,
-  COALESCE(EXTRACT(DAY FROM ust.time_btw_booking_departure),0) AS time_btw_booking_departure,
-  uf.total_flight_price,
-  uf.sum_flight_discounts,
-  uf.num_flights,
-  uf.months_since_signup,
-  uf.avg_checked_baggage,
-  uf.frequency_of_discount_flight,
-  uf.total_ticket_price,
-  COALESCE(uf.booked_seats,0) booked_seats,
-  COALESCE(uf.total_distance_flown,0) total_distance_flown,
-  COALESCE(uhi.total_rooms,0) total_rooms,
-  COALESCE(uhi.total_nights,0) total_nights,
-  COALESCE(uhi.frequency_hotel_discount,0) frequency_hotel_discount,
-  COALESCE(uhi.hotel_booking_count,0) hotel_booking_count,
-  COALESCE(uhi.total_hotel_price,0) total_hotel_price,
-  COALESCE(uhi.avg_hotel_price,0) avg_hotel_price,
-  COALESCE(rt.recency,0) session_recency,
-  COALESCE(ust.session_count,0) AS session_frequency, -- Using session count as frequency
-  COALESCE(uf.total_ticket_price + uhi.total_hotel_price, 0) AS monetary_value -- Total spend on flights and hotels as monetary
-FROM
-  user_base_table ubt
-LEFT JOIN
-  user_session_table ust ON ubt.user_id = ust.user_id
-LEFT JOIN
-  user_flights uf ON ubt.user_id = uf.user_id
-LEFT JOIN
-  user_hotel_info uhi ON ubt.user_id = uhi.user_id
-LEFT JOIN
-  recency_table rt ON ubt.user_id = rt.user_id
-ORDER BY
-  ubt.user_id
+        user_base_table ubt
+        LEFT JOIN user_session_table ust ON ubt.user_id = ust.user_id
+        LEFT JOIN user_flights uf ON ubt.user_id = uf.user_id
+        LEFT JOIN user_hotel_info uhi ON ubt.user_id = uhi.user_id
+        LEFT JOIN rfm_frequency rf ON ubt.user_id = rf.user_id
+        LEFT JOIN recency_table rt ON ubt.user_id = rt.user_id
+        LEFT JOIN rfm_score_with_ntile rsn ON ubt.user_id = rsn.user_id
+        LEFT JOIN rfm_user_type rut ON rut.user_id = rsn.user_id
+        LEFT JOIN user_segments usg ON rut.user_id = usg.user_id
+    ORDER BY
+        ubt.user_id
+)
+
+SELECT * FROM final_table;
+
+
+
+
+
+
+
+
+
