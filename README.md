@@ -78,8 +78,9 @@ Deliverables
 Cleaned and enriched data tables.
 Engineered features and customer metrics.
 Segmented customer groups.
-A CSV File that contains all customer metrics and final results.
 
-Executive summary, slides, and a recorded presentation.
+Conclusion
+
+This project provides an analytical approach to enhancing customer retention through segmentation, offering valuable insights to TravelTide's marketing and customer experience teams. By leveraging customer data, we aim to help TravelTide personalize its interactions and foster long-term customer loyalty.
 
 
