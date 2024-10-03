@@ -1,86 +1,29 @@
-TravelTide Customer Segmentation Project
+# TravelTide Customer Segmentation Project
 
-Project Overview
+## Project Overview
+This project focuses on segmenting customer data for TravelTide, an e-booking startup, to help design a personalized rewards program. The goal was to group customers based on their behavior and assign perks that best suit their preferences, with the aim of increasing customer retention and satisfaction.
 
-This project involves segmenting customer data to deliver data-driven recommendations for TravelTide, an e-booking startup. The segmentation aims to enhance customer retention by supporting a personalized rewards program. The project is divided into four stages:
+The analysis was conducted in four key stages:
+1. **Exploratory Data Analysis (EDA):** Cleaning and understanding the dataset.
+2. **Feature Engineering:** Creating meaningful metrics for customer segmentation.
+3. **Customer Segmentation:** Grouping customers and assigning perks.
+4. **Presentation of Results:** Visualizing and summarizing the findings for the marketing team.
 
-Exploratory Data Analysis (EDA)
-Feature Engineering
-Customer Segmentation
-Presentation of Results
-Project Background - Customer Segmentation
+## Dataset
+The final dataset (`Adewale_Traveltide_final_query-2024-07-12_114713.csv`) contains customer-level information post-segmentation, which can be used to gain insights into their behavior, preferences, and the perks assigned to each customer.
 
-What is Segmentation?
-Segmentation refers to techniques that group similar data points. Here, customers are grouped based on their shopping behavior within TravelTide's business context.
-
-Why Segmentation?
-Segmentation helps businesses provide tailored customer experiences, which can lead to:
-
-Customized promotions
-Personalized communications
-Specific account policies
-The Project Context
-
-About TravelTide
-
-TravelTide is a growing e-booking startup with the largest travel inventory and best search technology. However, it struggles with customer retention due to underdeveloped customer experience aspects.
-
-The Challenge
-Kevin Talanick, CEO of TravelTide, and Elena Tarrant, the new Head of Marketing, aim to design a personalized rewards program to improve customer retention. Our role as data analysts is to provide insights into customer behavior to support this initiative.
-
-Project Stages in Detail
-
-Week 1: Exploratory Data Analysis (EDA)
-
-
-Goal: Familiarize with the business context and available data.
-Tasks:
-Understand the tables and project needs.
-Clean the data by excluding irrelevant customers and refining columns.
-Use SQL to create a cleaned and enriched data table at the customer level.
-
-
-Week 2: Feature Engineering
-Goal: Devise metrics to characterize or group customers.
-Tasks:
-Identify key characteristics for customer grouping.
-Perform feature engineering using SQL to create meaningful metrics.
-Deliverables: Enhanced data with new attributes for segmentation.
-
-
-Week 3: Customer Segmentation
-
-
-Goal: Group customers based on behavior and preferences.
-Tasks:
-Analyze customers using the engineered features.
-Use SQL clustering methods to segment customers.
-Deliverables: Segmented customer groups with assigned perks.
-
-
-Week 4: Presentation of Results
-
-
-Goal: Present the customer analysis results and recommendations.
-Tasks:
-Create an executive summary and slides.
-Record a video presentation explaining the grading scheme and customer clusters.
-Deliverables: Presentation with visualizations and data storytelling using Tableau, and recommendations for measuring success.
-
-
-Key Project Elements
-
-
-Tools and Technologies
-Languages: SQL
-Platforms: SQL Server, Google Sheets for initial data inspection
-Deliverables
-Cleaned and enriched data tables.
-Engineered features and customer metrics.
-Segmented customer groups.
-
-Conclusion
-
-This project provides an analytical approach to enhancing customer retention through segmentation, offering valuable insights to TravelTide's marketing and customer experience teams. By leveraging customer data, we aim to help TravelTide personalize its interactions and foster long-term customer loyalty.
-
-
+### Key Columns:
+- **user_id:** Unique identifier for each customer.
+- **gender:** Gender of the customer.
+- **age:** Age of the customer.
+- **married:** Marital status (True/False).
+- **has_children:** Indicates if the customer has children (True/False).
+- **actual_trips:** Number of trips taken by the customer.
+- **avg_click:** Average number of clicks per session.
+- **session_count:** Total number of sessions.
+- **num_flights:** Total number of flights booked.
+- **avg_time_btw_booking_departure:** Average time between booking and departure (in days).
+- **avg_checked_baggage:** Average number of checked baggage per flight.
+- **rfm_rank:** RFM score based on recency, frequency, and monetary value.
+- **user_type:** Customer tier (e.g., Silver Members).
+- **perks:** Assigned perks for the customer (e.g., 20% hotel discount).
