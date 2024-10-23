@@ -27,3 +27,20 @@ The final dataset (`Adewale_Traveltide_final_query-2024-07-12_114713.csv`) conta
 - **rfm_rank:** RFM score based on recency, frequency, and monetary value.
 - **user_type:** Customer tier (e.g., Silver Members).
 - **perks:** Assigned perks for the customer (e.g., 20% hotel discount).
+
+- Findings
+  
+● The analysis resulted in 5 different segmentations which consist of various other characteristics such as Family traveler(users with children), Couple Travelers(married users), Young and free Travelers(people under 30), Business Travelers(users that travel with less than 1 bag or maximum of 1 bag), and Senior citizens who are the users above 60.
+● The segmentations as derived are:
+Platinum (These are the best customers based on their RFM and the revenue they
+generated the highest revenue among all the users) Gold (Generated Revenue and the RFM is very high)
+Silver(They are the users who have generated revenues and grouped according to their RFM score)
+Bronze ( this group was created based on the RFM score and they have generated a revenue)
+Basic users(users who never booked anything but have online activities)
+
+Recommendation
+
+● The analysis is subject to further analysis to ensure accuracy
+● There is a need to ensure data integrity and accuracy for future analysis.
+● For future bookings, there may be the need to integrate a short survey during
+bookings in order to ascertain users' special interes
