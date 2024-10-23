@@ -41,6 +41,8 @@ Basic users(users who never booked anything but have online activities)
 ### Recommendation
 
 ● The analysis is subject to further analysis to ensure accuracy
+
 ● There is a need to ensure data integrity and accuracy for future analysis.
+
 ● For future bookings, there may be the need to integrate a short survey during
 bookings in order to ascertain users' special interes
