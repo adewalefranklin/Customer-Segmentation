@@ -10,7 +10,7 @@ The analysis was conducted in four key stages:
 4. **Presentation of Results:** Visualizing and summarizing the findings for the marketing team.
 
 ## Dataset
-The final dataset (`Adewale_Traveltide_final_query-2024-07-12_114713.csv`) contains customer-level information post-segmentation, which can be used to gain insights into their behavior, preferences, and the perks assigned to each customer.
+The final dataset (`travel_tidy_final_query-2024-08-01_105240.csv`) contains customer-level information post-segmentation, which can be used to gain insights into their behavior, preferences, and the perks assigned to each customer.
 
 ### Key Columns:
 - **user_id:** Unique identifier for each customer.
