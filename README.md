@@ -31,7 +31,9 @@ The final dataset (`travel_tidy_final_query-2024-08-01_105240.csv`) contains cus
 ### Findings
   
 ● The analysis resulted in 5 different segmentations which consist of various other characteristics such as Family traveler(users with children), Couple Travelers(married users), Young and free Travelers(people under 30), Business Travelers(users that travel with less than 1 bag or maximum of 1 bag), and Senior citizens who are the users above 60.
+
 ● The segmentations as derived are:
+
 Platinum (These are the best customers based on their RFM and the revenue they
 generated the highest revenue among all the users) Gold (Generated Revenue and the RFM is very high)
 Silver(They are the users who have generated revenues and grouped according to their RFM score)
